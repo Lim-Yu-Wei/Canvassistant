@@ -120,32 +120,65 @@ class CanvasPipeline:
         return files
 
     def summarize_pdf(self, file_path):
-        """Extracts text from PDF using pdfplumber and uses GPT-4o for summarization."""
+        """
+        Summarizes PDF using a Map-Reduce approach:
+        1. Extract all text with pdfplumber.
+        2. Chunk text (12000 chars + 1000 overlap).
+        3. Summarize each chunk (Map).
+        4. Combine summaries into a final report (Reduce).
+        """
         try:
-            text = ""
+            logger.info(f"Extracting text from {file_path.name}...")
+            all_text = ""
             with pdfplumber.open(file_path) as pdf:
-                text = '\n'.join(page.extract_text() for page in pdf.pages if page.extract_text())
+                all_text = '\n'.join(page.extract_text() for page in pdf.pages if page.extract_text())
             
-            if not text.strip():
+            if not all_text.strip():
                 return "Could not extract text from PDF (it might be scanned or empty)."
 
-            # Truncate text to the first 8000 characters as requested
-            truncated_text = text[:8000]
+            # Split into 12000-character chunks with 1000 overlap
+            chunk_size = 12000
+            overlap = 1000
+            chunks = []
+            start = 0
+            while start < len(all_text):
+                end = start + chunk_size
+                chunks.append(all_text[start:end])
+                start += (chunk_size - overlap)
 
-            response = self.openai_client.chat.completions.create(
+            logger.info(f"Split document into {len(chunks)} chunks.")
+
+            # Map: Summarize chunks
+            chunk_summaries = []
+            for i, chunk in enumerate(chunks):
+                logger.info(f"Summarizing chunk {i+1}/{len(chunks)}...")
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "Summarize the following section of lecture material. Focus on core concepts and technical definitions."},
+                        {"role": "user", "content": chunk}
+                    ]
+                )
+                chunk_summaries.append(response.choices[0].message.content)
+
+            # Reduce: Combine summaries
+            logger.info("Reducing chunk summaries into final report...")
+            combined_prompt = "\n\n".join(chunk_summaries)
+            final_response = self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
-                        "role": "system",
-                        "content": "You are a helpful study assistant. Summarize the provided lecture material concisely but comprehensively. Focus on key definitions, core concepts, and potential exam topics."
+                        "role": "system", 
+                        "content": "You are a professional study assistant. You will be provided with several partial summaries of a lecture document. Combine them into a single, cohesive, and comprehensive final summary. Use 5 to 8 bullet points. Highlight key definitions and potential exam topics."
                     },
                     {
-                        "role": "user",
-                        "content": f"Please summarize the following course material:\n\n{truncated_text}"
+                        "role": "user", 
+                        "content": f"Combine these sections into one final summary:\n\n{combined_prompt}"
                     }
                 ]
             )
-            return response.choices[0].message.content
+            return final_response.choices[0].message.content
+
         except Exception as e:
             logger.error(f"Summarization failed for {file_path.name}: {e}")
             return f"Summarization failed: {e}"
@@ -190,7 +223,7 @@ class CanvasPipeline:
                             for chunk in r.iter_content(chunk_size=8192):
                                 f.write(chunk)
 
-                    # 2. Summarize using OpenAI GPT-4o (Base64)
+                    # 2. Summarize using OpenAI (Map-Reduce)
                     summary = self.summarize_pdf(local_path)
                     
                     # 3. Notify Telegram - Attach PDF + Summary
