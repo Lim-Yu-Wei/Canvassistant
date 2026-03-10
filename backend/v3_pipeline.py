@@ -117,18 +117,25 @@ class CanvasPipeline:
         url = f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/files"
         params = {"per_page": 100}
         files = []
-        while url:
-            resp = requests.get(url, headers=self.headers, params=params)
-            resp.raise_for_status()
-            files.extend(resp.json())
-            url = None
-            link = resp.headers.get("Link", "")
-            if 'rel="next"' in link:
-                for part in link.split(","):
-                    if 'rel="next"' in part:
-                        url = part[part.index("<")+1 : part.index(">")]
-                        params = {}
-        return files
+        try:
+            while url:
+                resp = requests.get(url, headers=self.headers, params=params)
+                if resp.status_code == 403:
+                    logger.warning(f"Access to files for course {course_id} is Forbidden (403). Skipping.")
+                    return []
+                resp.raise_for_status()
+                files.extend(resp.json())
+                url = None
+                link = resp.headers.get("Link", "")
+                if 'rel="next"' in link:
+                    for part in link.split(","):
+                        if 'rel="next"' in part:
+                            url = part[part.index("<")+1 : part.index(">")]
+                            params = {}
+            return files
+        except Exception as e:
+            logger.error(f"Error fetching files for course {course_id}: {e}")
+            return []
 
     def summarize_pdf(self, file_path):
         """
