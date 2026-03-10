@@ -33,4 +33,4 @@ jobs:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       run: |
-        python backend/pipeline.py
+        python backend/v3_pipeline.py
