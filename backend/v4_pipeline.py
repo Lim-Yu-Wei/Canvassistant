@@ -90,70 +90,58 @@ class CanvasPipeline:
         # Initialize OpenAI
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-    def is_file_seen(self, file_id):
-        """Check Supabase for existing file_id."""
-        response = self.supabase.table("seen_files").select("file_id").eq("file_id", str(file_id)).execute()
+    def is_item_seen(self, table, item_id):
+        """Check Supabase for existing item_id in specified table."""
+        response = self.supabase.table(table).select("id").eq("id", str(item_id)).execute()
         return len(response.data) > 0
 
-    def mark_file_seen(self, file_id):
-        """Insert seen file_id into Supabase."""
-        self.supabase.table("seen_files").insert({"file_id": str(file_id)}).execute()
+    def mark_item_seen(self, table, item_id):
+        """Insert seen item_id into Supabase table."""
+        self.supabase.table(table).insert({"id": str(item_id)}).execute()
 
     def get_active_courses(self):
         url = f"{CANVAS_BASE_URL}/api/v1/courses"
         params = {"enrollment_state": "active", "per_page": 100}
         courses = []
         while url:
-            resp = requests.get(url, headers=self.headers, params=params)
-            resp.raise_for_status()
-            courses.extend(resp.json())
-            url = None
-            link = resp.headers.get("Link", "")
-            if 'rel="next"' in link:
-                for part in link.split(","):
-                    if 'rel="next"' in part:
-                        url = part[part.index("<")+1 : part.index(">")]
-                        params = {}
+            try:
+                resp = requests.get(url, headers=self.headers, params=params)
+                resp.raise_for_status()
+                courses.extend(resp.json())
+                url = None
+                link = resp.headers.get("Link", "")
+                if 'rel="next"' in link:
+                    for part in link.split(","):
+                        if 'rel="next"' in part:
+                            url = part[part.index("<")+1 : part.index(">")]
+                            params = {}
+            except Exception as e:
+                logger.error(f"[V{VERSION}] Error fetching courses: {e}")
+                break
         return courses
 
     def get_course_files(self, course_id):
-        """
-        Fetches files for a course, filtered by creation date.
-        Only returns files created in the last 48 hours.
-        """
+        """Fetches files for a course, filtered by creation date (last 48h)."""
         url = f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/files"
-        # Sort by newest first so we can stop early
         params = {"per_page": 100, "sort": "created_at", "order": "desc"}
-        
-        # Threshold: 48 hours ago
         threshold_date = datetime.now(timezone.utc) - timedelta(hours=48)
-        
         files = []
         try:
             while url:
                 resp = requests.get(url, headers=self.headers, params=params)
-                if resp.status_code == 403:
-                    logger.warning(f"[V{VERSION}] Access to files for course {course_id} is Forbidden (403). Skipping.")
-                    return []
+                if resp.status_code == 403: return []
                 resp.raise_for_status()
-                
                 batch = resp.json()
                 stop_paging = False
-                
                 for file_info in batch:
-                    # Canvas dates are usually ISO8601 strings like "2023-01-01T12:00:00Z"
                     created_at_str = file_info.get("created_at")
                     if created_at_str:
                         created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
                         if created_at < threshold_date:
-                            logger.info(f"[V{VERSION}] Reached historical files (older than 48h). Stopping search for course {course_id}.")
                             stop_paging = True
                             break
                     files.append(file_info)
-                
-                if stop_paging:
-                    break
-                
+                if stop_paging: break
                 url = None
                 link = resp.headers.get("Link", "")
                 if 'rel="next"' in link:
@@ -166,14 +154,36 @@ class CanvasPipeline:
             logger.error(f"[V{VERSION}] Error fetching files for course {course_id}: {e}")
             return []
 
+    def get_announcements(self, course_id):
+        """Fetches recent announcements for a course."""
+        url = f"{CANVAS_BASE_URL}/api/v1/announcements"
+        params = {
+            "context_codes[]": f"course_{course_id}",
+            "start_date": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
+            "active_only": True
+        }
+        try:
+            resp = requests.get(url, headers=self.headers, params=params)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error(f"[V{VERSION}] Error fetching announcements for {course_id}: {e}")
+            return []
+
+    def get_assignments(self, course_id):
+        """Fetches upcoming assignments for a course."""
+        url = f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/assignments"
+        params = {"per_page": 50, "order_by": "due_at"}
+        try:
+            resp = requests.get(url, headers=self.headers, params=params)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error(f"[V{VERSION}] Error fetching assignments for {course_id}: {e}")
+            return []
+
     def summarize_pdf(self, file_path):
-        """
-        Summarizes PDF using a Map-Reduce approach:
-        1. Extract all text with pdfplumber.
-        2. Chunk text (12000 chars + 1000 overlap).
-        3. Summarize each chunk (Map).
-        4. Combine summaries into a final report (Reduce).
-        """
+        """Summarizes PDF using a Map-Reduce approach."""
         try:
             logger.info(f"[V{VERSION}] Extracting text from {file_path.name}...")
             all_text = ""
@@ -183,113 +193,95 @@ class CanvasPipeline:
             if not all_text.strip():
                 return "Could not extract text from PDF (it might be scanned or empty)."
 
-            # Split into 12000-character chunks with 1000 overlap
             chunk_size = 12000
             overlap = 1000
             chunks = []
             start = 0
             while start < len(all_text):
-                end = start + chunk_size
-                chunks.append(all_text[start:end])
+                chunks.append(all_text[start : start + chunk_size])
                 start += (chunk_size - overlap)
 
-            logger.info(f"[V{VERSION}] Split document into {len(chunks)} chunks.")
-
-            # Map: Summarize chunks
             chunk_summaries = []
             for i, chunk in enumerate(chunks):
-                logger.info(f"[V{VERSION}] Summarizing chunk {i+1}/{len(chunks)}...")
                 response = self.openai_client.chat.completions.create(
                     model="gpt-4o",
                     messages=[
-                        {"role": "system", "content": "Summarize the following section of lecture material. Focus on core concepts and technical definitions."},
+                        {"role": "system", "content": "Summarize this lecture material chunk. Focus on core concepts."},
                         {"role": "user", "content": chunk}
                     ]
                 )
                 chunk_summaries.append(response.choices[0].message.content)
 
-            # Reduce: Combine summaries
-            logger.info(f"[V{VERSION}] Reducing chunk summaries into final report...")
-            combined_prompt = "\n\n".join(chunk_summaries)
             final_response = self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are a professional study assistant. Combine these partial lecture summaries into one cohesive final summary. Use 5 to 8 bullet points. Highlight key definitions and potential exam topics."
-                    },
-                    {
-                        "role": "user", 
-                        "content": combined_prompt
-                    }
+                    {"role": "system", "content": "Combine these lecture summaries into 5-8 bullet points. Highlight exam topics."},
+                    {"role": "user", "content": "\n\n".join(chunk_summaries)}
                 ]
             )
             return final_response.choices[0].message.content
-
         except Exception as e:
-            logger.error(f"[V{VERSION}] Summarization failed for {file_path.name}: {e}")
             return f"Summarization failed: {e}"
 
     def process(self):
         try:
-            logger.info(f"--- Starting Canvas Pipeline Version {VERSION} ---")
+            logger.info(f"--- Starting Canvas Pipeline Version {VERSION} (Simulated Listener) ---")
             courses = self.get_active_courses()
-            logger.info(f"[V{VERSION}] Found {len(courses)} active courses.")
-
+            
             for course in courses:
                 course_id = course.get("id")
-                course_name = course.get("name", f"Course_{course_id}").replace("/", "-")
-                logger.info(f"[V{VERSION}] Processing course: {course_name}")
-
-                files = self.get_course_files(course_id)
-                pdf_files = [f for f in files if f.get("filename", "").lower().endswith(".pdf")]
+                course_name = course.get("name", "Unknown").replace("/", "-")
                 
-                if not pdf_files:
-                    continue
+                # 1. Check for New Announcements
+                announcements = self.get_announcements(course_id)
+                for ann in announcements:
+                    aid = ann.get("id")
+                    if not self.is_item_seen("seen_announcements", aid):
+                        title = ann.get("title")
+                        message = ann.get("message", "")[:500] + "..."
+                        logger.info(f"[V{VERSION}] New announcement: {title}")
+                        msg = f"📢 *New Announcement: {course_name}*\n\n*Title:* {title}\n\n{message}\n\n[Open in Canvas]({ann.get('html_url')})"
+                        telegram_send_message(msg)
+                        self.mark_item_seen("seen_announcements", aid)
 
-                for file_info in pdf_files:
-                    file_id = file_info.get("id")
-                    filename = file_info.get("filename")
+                # 2. Check for New Assignments
+                assignments = self.get_assignments(course_id)
+                for ass in assignments:
+                    asid = ass.get("id")
+                    # We check if created recently or if not seen
+                    created_at = datetime.fromisoformat(ass.get("created_at").replace("Z", "+00:00"))
+                    if created_at > (datetime.now(timezone.utc) - timedelta(hours=48)) and not self.is_item_seen("seen_assignments", asid):
+                        name = ass.get("name")
+                        due = ass.get("due_at")
+                        logger.info(f"[V{VERSION}] New assignment: {name}")
+                        msg = f"📝 *New Assignment: {course_name}*\n\n*Name:* {name}\n*Due:* {due}\n\n[View Assignment]({ass.get('html_url')})"
+                        telegram_send_message(msg)
+                        self.mark_item_seen("seen_assignments", asid)
 
-                    if self.is_file_seen(file_id):
-                        continue
+                # 3. Check for New Files (Original logic)
+                files = self.get_course_files(course_id)
+                for file_info in [f for f in files if f.get("filename", "").lower().endswith(".pdf")]:
+                    fid = file_info.get("id")
+                    if not self.is_item_seen("seen_files", fid):
+                        filename = file_info.get("filename")
+                        logger.info(f"[V{VERSION}] New file: {filename}")
+                        # (Download and summarize)
+                        local_path = DATA_DIR / filename
+                        DATA_DIR.mkdir(exist_ok=True)
+                        with requests.get(file_info.get("url"), headers=self.headers, stream=True) as r:
+                            with open(local_path, 'wb') as f:
+                                for bc in r.iter_content(8192): f.write(bc)
+                        
+                        summary = self.summarize_pdf(local_path)
+                        telegram_send_pdf(local_path, course_name)
+                        telegram_send_message(f"📝 *Summary ({filename})*\n\n{summary}")
+                        
+                        local_path.unlink()
+                        self.mark_item_seen("seen_files", fid)
 
-                    logger.info(f"[V{VERSION}] New file discovered: {filename}")
-                    
-                    # 1. Download locally
-                    download_url = file_info.get("url")
-                    if not download_url:
-                        continue
-                    
-                    local_path = DATA_DIR / filename
-                    DATA_DIR.mkdir(exist_ok=True)
-                    
-                    with requests.get(download_url, headers=self.headers, stream=True) as r:
-                        r.raise_for_status()
-                        with open(local_path, 'wb') as f:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                f.write(chunk)
-
-                    # 2. Summarize (V4 Map-Reduce)
-                    summary = self.summarize_pdf(local_path)
-                    
-                    # 3. Notify Telegram (Split)
-                    telegram_send_pdf(local_path, course_name)
-                    
-                    summary_msg = f"📝 *Summary ({filename})*\n\n{summary}"
-                    telegram_send_message(summary_msg)
-
-                    # 4. Clean up local file
-                    local_path.unlink()
-                    
-                    # 5. Mark seen in Supabase
-                    self.mark_file_seen(file_id)
-
-            logger.info(f"--- Pipeline Version {VERSION} Finished Successfully ---")
-
+            logger.info(f"--- Pipeline Finished Successfully ---")
         except Exception as e:
-            logger.exception(f"[V{VERSION}] Pipeline execution failed.")
-            telegram_notify_error(f"❌ *Canvas Pipeline V{VERSION} Error*\n\n```python\n{str(e)}\n```")
+            telegram_notify_error(f"❌ *Canvas Pipeline V{VERSION} Error*\n\n{str(e)}")
 
 if __name__ == "__main__":
     pipeline = CanvasPipeline()
