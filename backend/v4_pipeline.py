@@ -200,14 +200,19 @@ class CanvasPipeline:
             logger.error(f"[V{VERSION}] Error fetching assignments for {course_id}: {e}")
             return []
 
-    def summarize_pdf(self, file_path):
-        """Summarizes PDF using a Map-Reduce approach."""
+    def extract_text(self, file_path):
+        """Extract all text from a PDF. Returns empty string if unreadable."""
+        logger.info(f"[V{VERSION}] Extracting text from {file_path.name}...")
         try:
-            logger.info(f"[V{VERSION}] Extracting text from {file_path.name}...")
-            all_text = ""
             with pdfplumber.open(file_path) as pdf:
-                all_text = '\n'.join(page.extract_text() for page in pdf.pages if page.extract_text())
-            
+                return '\n'.join(page.extract_text() for page in pdf.pages if page.extract_text())
+        except Exception as e:
+            logger.error(f"[V{VERSION}] Text extraction failed for {file_path.name}: {e}")
+            return ""
+
+    def summarize_pdf(self, all_text):
+        """Summarizes PDF text using a Map-Reduce approach."""
+        try:
             if not all_text.strip():
                 return "Could not extract text from PDF (it might be scanned or empty)."
 
@@ -220,7 +225,7 @@ class CanvasPipeline:
                 start += (chunk_size - overlap)
 
             chunk_summaries = []
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
                 response = self.openai_client.chat.completions.create(
                     model="gpt-4o",
                     messages=[
@@ -240,6 +245,70 @@ class CanvasPipeline:
             return final_response.choices[0].message.content
         except Exception as e:
             return f"Summarization failed: {e}"
+
+    def generate_obsidian_note(self, all_text, filename, course_name):
+        """Generate a structured Obsidian Markdown note from PDF text and save it."""
+        try:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stem = Path(filename).stem
+
+            prompt = f"""You are a study assistant. Convert the following lecture material into a structured Obsidian Markdown note.
+
+Output ONLY the markdown content, starting with the YAML frontmatter. Use this exact structure:
+
+---
+course: {course_name}
+date: {today}
+source_file: {filename}
+tags: [lecture-notes]
+---
+
+## Summary
+3-5 sentence overview of the material.
+
+## Key Concepts
+- [[ConceptOne]] — brief definition
+- [[ConceptTwo]] — brief definition
+(use [[wikilinks]] for all key terms so Obsidian can link them)
+
+## Detailed Notes
+Structured notes with subheadings covering the main content.
+
+## Exam Topics
+- Likely exam items as bullet points
+
+---
+Lecture material:
+{all_text[:15000]}"""
+
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            note_content = response.choices[0].message.content
+
+            # Save note
+            safe_course = course_name.replace("/", "-")
+            note_dir = BASE_DIR / "notes" / safe_course
+            note_dir.mkdir(parents=True, exist_ok=True)
+            note_path = note_dir / f"{stem}.md"
+            note_path.write_text(note_content, encoding="utf-8")
+            logger.info(f"[V{VERSION}] Obsidian note saved: {note_path}")
+
+            # Update course index
+            index_path = note_dir / "index.md"
+            existing_links = set()
+            if index_path.exists():
+                existing_links = set(index_path.read_text(encoding="utf-8").splitlines())
+            link = f"- [[{stem}]]"
+            if link not in existing_links:
+                with open(index_path, "a", encoding="utf-8") as f:
+                    if not index_path.stat().st_size:
+                        f.write(f"# {course_name}\n\n")
+                    f.write(link + "\n")
+
+        except Exception as e:
+            logger.error(f"[V{VERSION}] Obsidian note generation failed: {e}")
 
     @staticmethod
     def escape_md(text):
@@ -292,17 +361,19 @@ class CanvasPipeline:
                     if not self.is_item_seen(fid):
                         filename = file_info.get("filename")
                         logger.info(f"[V{VERSION}] New file: {filename}")
-                        # (Download and summarize)
                         local_path = DATA_DIR / filename
                         DATA_DIR.mkdir(exist_ok=True)
                         with requests.get(file_info.get("url"), headers=self.headers, stream=True) as r:
                             with open(local_path, 'wb') as f:
                                 for bc in r.iter_content(8192): f.write(bc)
-                        
-                        summary = self.summarize_pdf(local_path)
+
+                        all_text = self.extract_text(local_path)
+                        summary = self.summarize_pdf(all_text)
+                        self.generate_obsidian_note(all_text, filename, course_name)
+
                         telegram_send_pdf(local_path, course_name)
                         telegram_send_plain(f"📝 Summary ({filename})\n\n{summary}")
-                        
+
                         local_path.unlink()
                         self.mark_item_seen(fid)
 
