@@ -90,14 +90,14 @@ class CanvasPipeline:
         # Initialize OpenAI
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-    def is_item_seen(self, table, item_id):
-        """Check Supabase for existing item_id in specified table."""
-        response = self.supabase.table(table).select("id").eq("id", str(item_id)).execute()
+    def is_item_seen(self, item_id):
+        """Check Supabase for existing file_id in seen_files table."""
+        response = self.supabase.table("seen_files").select("file_id").eq("file_id", str(item_id)).execute()
         return len(response.data) > 0
 
-    def mark_item_seen(self, table, item_id):
-        """Insert seen item_id into Supabase table."""
-        self.supabase.table(table).insert({"id": str(item_id)}).execute()
+    def mark_item_seen(self, item_id):
+        """Insert seen file_id into seen_files table."""
+        self.supabase.table("seen_files").insert({"file_id": str(item_id)}).execute()
 
     def get_active_courses(self):
         url = f"{CANVAS_BASE_URL}/api/v1/courses"
@@ -223,26 +223,35 @@ class CanvasPipeline:
         except Exception as e:
             return f"Summarization failed: {e}"
 
+    @staticmethod
+    def escape_md(text):
+        """Escape special Markdown characters in dynamic content."""
+        if not text:
+            return ""
+        for ch in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
+            text = text.replace(ch, f'\\{ch}')
+        return text
+
     def process(self):
         try:
             logger.info(f"--- Starting Canvas Pipeline Version {VERSION} (Simulated Listener) ---")
             courses = self.get_active_courses()
-            
+
             for course in courses:
                 course_id = course.get("id")
                 course_name = course.get("name", "Unknown").replace("/", "-")
-                
+
                 # 1. Check for New Announcements
                 announcements = self.get_announcements(course_id)
                 for ann in announcements:
                     aid = f"ann_{ann.get('id')}"
-                    if not self.is_item_seen("seenfiles", aid):
-                        title = ann.get("title")
-                        message = ann.get("message", "")[:500] + "..."
-                        logger.info(f"[V{VERSION}] New announcement: {title}")
-                        msg = f"📢 *New Announcement: {course_name}*\n\n*Title:* {title}\n\n{message}\n\n[Open in Canvas]({ann.get('html_url')})"
+                    if not self.is_item_seen(aid):
+                        title = self.escape_md(ann.get("title", ""))
+                        message = self.escape_md(ann.get("message", "")[:500]) + "\\.\\.\\."
+                        logger.info(f"[V{VERSION}] New announcement: {ann.get('title')}")
+                        msg = f"📢 *New Announcement: {self.escape_md(course_name)}*\n\n*Title:* {title}\n\n{message}\n\n[Open in Canvas]({ann.get('html_url')})"
                         telegram_send_message(msg)
-                        self.mark_item_seen("seenfiles", aid)
+                        self.mark_item_seen(aid)
 
                 # 2. Check for New Assignments
                 assignments = self.get_assignments(course_id)
@@ -250,19 +259,19 @@ class CanvasPipeline:
                     asid = f"asgn_{ass.get('id')}"
                     # We check if created recently or if not seen
                     created_at = datetime.fromisoformat(ass.get("created_at").replace("Z", "+00:00"))
-                    if created_at > (datetime.now(timezone.utc) - timedelta(hours=48)) and not self.is_item_seen("seenfiles", asid):
-                        name = ass.get("name")
-                        due = ass.get("due_at")
-                        logger.info(f"[V{VERSION}] New assignment: {name}")
-                        msg = f"📝 *New Assignment: {course_name}*\n\n*Name:* {name}\n*Due:* {due}\n\n[View Assignment]({ass.get('html_url')})"
+                    if created_at > (datetime.now(timezone.utc) - timedelta(hours=48)) and not self.is_item_seen(asid):
+                        name = self.escape_md(ass.get("name", ""))
+                        due = self.escape_md(str(ass.get("due_at", "N/A")))
+                        logger.info(f"[V{VERSION}] New assignment: {ass.get('name')}")
+                        msg = f"📝 *New Assignment: {self.escape_md(course_name)}*\n\n*Name:* {name}\n*Due:* {due}\n\n[View Assignment]({ass.get('html_url')})"
                         telegram_send_message(msg)
-                        self.mark_item_seen("seenfiles", asid)
+                        self.mark_item_seen(asid)
 
                 # 3. Check for New Files (Original logic)
                 files = self.get_course_files(course_id)
                 for file_info in [f for f in files if f.get("filename", "").lower().endswith(".pdf")]:
                     fid = file_info.get("id")
-                    if not self.is_item_seen("seenfiles", fid):
+                    if not self.is_item_seen(fid):
                         filename = file_info.get("filename")
                         logger.info(f"[V{VERSION}] New file: {filename}")
                         # (Download and summarize)
@@ -277,7 +286,7 @@ class CanvasPipeline:
                         telegram_send_message(f"📝 *Summary ({filename})*\n\n{summary}")
                         
                         local_path.unlink()
-                        self.mark_item_seen("seenfiles", fid)
+                        self.mark_item_seen(fid)
 
             logger.info(f"--- Pipeline Finished Successfully ---")
         except Exception as e:
