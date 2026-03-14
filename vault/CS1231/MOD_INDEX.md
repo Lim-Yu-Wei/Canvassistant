@@ -64,3 +64,8 @@ tags: [CS1231, index, discrete_structures]
 - *Discrete Mathematics and Its Applications* (>= 6th ed.) by Kenneth Rosen, McGraw-Hill (Ch 1-10)
 - *Discrete Mathematics: An Introduction to Mathematical Reasoning* (>= 4th ed.) by Susanna S. Epp, Cengage Asia (Ch 1-10)
 - *Introduction to Advanced Mathematics: A Guide to Understanding Proofs* by Connie M. Campbell, Cengage Asia (Ch 1-3)
+
+## Auto-Generated Notes
+
+- [[Midterm+Test+2+Practice+Paper]]
+- [[Midterm+Test+2+Practice+Paper+with+Reference+Solutions]]
