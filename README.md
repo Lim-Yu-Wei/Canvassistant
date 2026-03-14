@@ -72,5 +72,4 @@ Once your notes are in Obsidian, you can use an LLM to speak to them.
 
 ---
 
-## ⚖️ License
-MIT License - Fee free to use and adapt for your own studies!
+
