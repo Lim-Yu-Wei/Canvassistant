@@ -41,6 +41,9 @@ jobs:
       env:
         VAULT_TOKEN: ${{ secrets.VAULT_PAT }}
       run: |
+        git clone https://x-access-token:${VAULT_TOKEN}@github.com/Ciltan/sem2-2526-vault.git /tmp/vault-repo
+        cp -r vault/. /tmp/vault-repo/
+        cd /tmp/vault-repo
         git config user.name "Canvas Pipeline Bot"
         git config user.email "bot@canvassistant"
         
