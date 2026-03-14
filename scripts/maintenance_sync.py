@@ -17,7 +17,7 @@ from openai import OpenAI
 VERSION = "4.0"
 
 # Load environment variables (.env locally, Secrets in GitHub)
-load_dotenv()
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Configuration (Read directly from environment variables)
 CANVAS_BASE_URL = os.getenv("CANVAS_BASE_URL")

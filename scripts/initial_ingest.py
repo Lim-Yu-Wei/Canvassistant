@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-load_dotenv("backend/.env")
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Constants from environment
 CANVAS_BASE_URL = os.getenv("CANVAS_BASE_URL")
@@ -233,4 +233,4 @@ if __name__ == "__main__":
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     orchestrator = InitialIngestOrchestrator()
-    orchestrator.run()
+    orchestrator.run(limit = 2)
