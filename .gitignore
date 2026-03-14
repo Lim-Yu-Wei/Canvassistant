@@ -22,6 +22,7 @@ node_modules/
 extension/dist/
 
 # Obsidian settings (local-only, don't sync to GitHub)
+.obsidian/
 vault/.obsidian/
 
 # OS
