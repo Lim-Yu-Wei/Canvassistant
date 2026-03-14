@@ -45,7 +45,7 @@ jobs:
         git config user.email "bot@canvassistant"
         
         # Clone the private vault repo
-        git clone https://x-access-token:${VAULT_TOKEN}@github.com/Lim-Yu-Wei/YOUR_VAULT_REPO.git /tmp/vault-repo
+        git clone https://x-access-token:${VAULT_TOKEN}@github.com/Lim-Yu-Wei/sem2vault.git /tmp/vault-repo
         
         # Copy generated notes into it
         cp -r vault/. /tmp/vault-repo/
