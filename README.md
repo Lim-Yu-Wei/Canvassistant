@@ -32,16 +32,26 @@ This step downloads everything you currently have on Canvas and builds your init
 
 ---
 
+---
+
 ## 🤖 Step 2: Hourly Automation (GitHub Actions)
 Keep your vault updated automatically without keeping your computer on.
 
 1. **Fork this repository** to your private GitHub account.
-2. **Setup Secrets**: Go to `Settings > Secrets and Variables > Actions` and add:
-   - `CANVAS_BASE_URL`, `CANVAS_TOKEN`
+2. **Setup Telegram Bot**:
+   - Message [@BotFather](https://t.me/botfather) on Telegram.
+   - Send `/newbot`, follow the prompts, and save the **API Token**.
+   - Start a chat with your new bot and send a message.
+   - Message [@userinfobot](https://t.me/userinfobot) to get your **Chat ID**.
+3. **Setup GitHub Secrets**: 
+   Go to your fork's `Settings > Secrets and Variables > Actions` and add:
+   - `CANVAS_BASE_URL` (e.g., `https://canvas.nus.edu.sg`)
+   - `CANVAS_TOKEN`
    - `OPENAI_API_KEY`
-   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+   - `TELEGRAM_BOT_TOKEN` (The one from BotFather)
+   - `TELEGRAM_CHAT_ID` (The one from userinfobot)
    - `SUPABASE_URL`, `SUPABASE_KEY` (Used to track seen files)
-3. **Enable the Workflow**: Go to the `Actions` tab and enable the "Daily Canvas Pipeline".
+4. **Enable the Workflow**: Go to the `Actions` tab and enable the "Daily Canvas Pipeline".
 
 ---
 
