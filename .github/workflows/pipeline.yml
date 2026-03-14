@@ -46,6 +46,16 @@ jobs:
         cd /tmp/vault-repo
         git config user.name "Canvas Pipeline Bot"
         git config user.email "bot@canvassistant"
+        
+        # Clone the private vault repo
+        git clone https://x-access-token:${VAULT_TOKEN}@github.com/Lim-Yu-Wei/sem2vault.git /tmp/vault-repo
+        
+        # Copy generated notes into it
+        cp -r vault/. /tmp/vault-repo/
+        
+        cd /tmp/vault-repo
+        git config user.name "Canvas Pipeline Bot"
+        git config user.email "bot@canvassistant"
         git add .
         if git diff --staged --quiet; then
           echo "No new notes to commit."
