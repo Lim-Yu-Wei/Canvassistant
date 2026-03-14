@@ -15,23 +15,67 @@ logger = logging.getLogger(__name__)
 
 load_dotenv("backend/.env")
 
-# Constants
+# Constants from environment
+CANVAS_BASE_URL = os.getenv("CANVAS_BASE_URL")
+CANVAS_TOKEN = os.getenv("CANVAS_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OBSIDIAN_API_KEY = "f9ba9cc41ba1598f6f9e356a69b610a10230962c31682351824dfca97136a375"
-OBSIDIAN_BASE_URL = "https://127.0.0.1:27124"
+OBSIDIAN_API_KEY = os.getenv("OBSIDIAN_API_KEY") # Optional for local setup
+OBSIDIAN_BASE_URL = os.getenv("OBSIDIAN_BASE_URL", "https://127.0.0.1:27124")
 DATA_DIR = Path("data")
+VAULT_DIR = Path("vault")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-class ObsidianOrchestrator:
+class InitialIngestOrchestrator:
     def __init__(self):
-        self.headers = {
+        self.headers = {"Authorization": f"Bearer {CANVAS_TOKEN}"}
+        self.obsidian_headers = {
             "Authorization": f"Bearer {OBSIDIAN_API_KEY}",
             "Content-Type": "text/markdown"
         }
         self.vault_topics: Set[str] = set()
         self.processed_log_path = Path("processed_files.json")
         self.processed_files = self._load_processed_log()
+
+    def download_all_canvas_pdfs(self):
+        """Downloads every PDF from all active courses for the initial sync."""
+        logger.info("Starting full Canvas PDF download...")
+        courses_url = f"{CANVAS_BASE_URL}/api/v1/courses"
+        params = {"enrollment_state": "active", "per_page": 100}
+        
+        try:
+            resp = requests.get(courses_url, headers=self.headers, params=params)
+            resp.raise_for_status()
+            courses = resp.json()
+            
+            for course in courses:
+                course_id = course.get("id")
+                course_name = course.get("name", "Unknown").replace("/", "-")
+                if not course_id: continue
+                
+                logger.info(f"Targeting Course: {course_name}")
+                files_url = f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/files"
+                f_params = {"per_page": 100}
+                
+                f_resp = requests.get(files_url, headers=self.headers, params=f_params)
+                if f_resp.status_code == 403: continue
+                f_resp.raise_for_status()
+                files = f_resp.json()
+                
+                for f_info in files:
+                    if f_info.get("filename", "").lower().endswith(".pdf"):
+                        dest_dir = DATA_DIR / course_name
+                        dest_dir.mkdir(parents=True, exist_ok=True)
+                        dest_path = dest_dir / f_info["filename"]
+                        
+                        if dest_path.exists(): continue
+                        
+                        logger.info(f"Downloading {f_info['filename']}...")
+                        with requests.get(f_info["url"], headers=self.headers, stream=True) as r:
+                            with open(dest_path, 'wb') as f:
+                                for chunk in r.iter_content(8192): f.write(chunk)
+        except Exception as e:
+            logger.error(f"Canvas download failed: {e}")
 
     def _load_processed_log(self) -> Dict:
         if self.processed_log_path.exists():
@@ -127,22 +171,26 @@ class ObsidianOrchestrator:
 
     def upload_to_obsidian(self, content: str, module_folder: str, filename: str):
         stem = Path(filename).stem
-        logger.info(f"Syncing {stem}.md (Length: {len(content)}, Preview: {content[:20]!r})")
         # Ensure module folder names are consistent with Obsidian structure
         clean_folder = module_folder.split(" ")[0].upper() # e.g. "CG2111A"
-        url = f"{OBSIDIAN_BASE_URL}/vault/{clean_folder}/{stem}.md"
         
-        try:
-            resp = requests.put(url, headers=self.headers, data=content.encode('utf-8'), verify=False)
-            if resp.status_code in [200, 201, 204]:
-                logger.info(f"Successfully synced: {clean_folder}/{stem}.md")
-                return True
-            else:
-                logger.error(f"Sync failed for {stem}: {resp.status_code} - {resp.text}")
-                return False
-        except Exception as e:
-            logger.error(f"Obsidian sync error: {e}")
-            return False
+        # 1. Save locally to /vault directory (for Git sync)
+        local_path = VAULT_DIR / clean_folder / f"{stem}.md"
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text(content, encoding="utf-8")
+        logger.info(f"Saved locally: {local_path}")
+
+        # 2. Try to sync to running Obsidian instance via REST API (optional)
+        if OBSIDIAN_API_KEY:
+            url = f"{OBSIDIAN_BASE_URL}/vault/{clean_folder}/{stem}.md"
+            try:
+                resp = requests.put(url, headers=self.obsidian_headers, data=content.encode('utf-8'), verify=False)
+                if resp.status_code in [200, 201, 204]:
+                    logger.info(f"Successfully synced to Obsidian API.")
+                    return True
+            except:
+                logger.warning("Obsidian API not reachable. Note saved locally only.")
+        return True
 
     def process_file(self, pdf_path: Path):
         file_key = str(pdf_path)
@@ -164,17 +212,18 @@ class ObsidianOrchestrator:
                 self.processed_files["processed"].append(file_key)
                 self._save_processed_log()
 
-    def run(self, max_workers=5, limit=None):
-        self.fetch_vault_map()
+    def run(self, max_workers=5):
+        # 1. Download everything first
+        self.download_all_canvas_pdfs()
         
+        # 2. Map existing vault for linking
+        if OBSIDIAN_API_KEY:
+            self.fetch_vault_map()
+        
+        # 3. Process each PDF
         pdf_files = list(DATA_DIR.rglob("*.pdf"))
-        # Filter out anything already processed to avoid double work
         unprocessed_pdf_files = [f for f in pdf_files if str(f) not in self.processed_files["processed"]]
-        logger.info(f"Found {len(unprocessed_pdf_files)} unprocessed matching PDFs.")
-        
-        if limit:
-            unprocessed_pdf_files = unprocessed_pdf_files[:limit]
-            logger.info(f"Limited run: processing first {limit} files.")
+        logger.info(f"Processing {len(unprocessed_pdf_files)} PDFs...")
 
         with futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             executor.map(self.process_file, unprocessed_pdf_files)
@@ -183,6 +232,5 @@ if __name__ == "__main__":
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
-    orchestrator = ObsidianOrchestrator()
-    # FULL RUN
+    orchestrator = InitialIngestOrchestrator()
     orchestrator.run()

@@ -188,17 +188,48 @@ class CanvasPipeline:
             logger.error(f"[V{VERSION}] Error fetching announcements for {course_id}: {e}")
             return []
 
-    def get_assignments(self, course_id):
-        """Fetches upcoming assignments for a course."""
-        url = f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/assignments"
-        params = {"per_page": 50, "order_by": "due_at"}
-        try:
-            resp = requests.get(url, headers=self.headers, params=params)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            logger.error(f"[V{VERSION}] Error fetching assignments for {course_id}: {e}")
-            return []
+    def get_upcoming_assignments(self, days=7):
+        """Fetches all upcoming assignments across all courses."""
+        upcoming = []
+        courses = self.get_active_courses()
+        for course in courses:
+            course_id = course.get("id")
+            course_name = course.get("name", "Unknown").replace("/", "-")
+            url = f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/assignments"
+            params = {"bucket": "upcoming", "per_page": 50}
+            try:
+                resp = requests.get(url, headers=self.headers, params=params)
+                resp.raise_for_status()
+                for asgn in resp.json():
+                    asgn['course_name'] = course_name
+                    upcoming.append(asgn)
+            except:
+                continue
+        return upcoming
+
+    def send_daily_digest(self):
+        """Sends a summary of assignments due in the next 7 days."""
+        logger.info(f"[V{VERSION}] Preparing Daily Digest...")
+        upcoming = self.get_upcoming_assignments()
+        if not upcoming:
+            telegram_send_plain("✅ No assignments due in the next 7 days. Enjoy your week!")
+            return
+
+        msg = "📅 *Daily To-Do List (Next 7 Days)*\n\n"
+        # Sort by due date
+        upcoming.sort(key=lambda x: x.get('due_at') or '9999-12-31')
+        
+        for asgn in upcoming:
+            name = self.escape_md(asgn.get("name", ""))
+            course = self.escape_md(asgn.get("course_name", ""))
+            due_str = asgn.get("due_at")
+            if due_str:
+                due = datetime.fromisoformat(due_str.replace("Z", "+00:00")).strftime("%d %b, %H:%M")
+            else:
+                due = "No due date"
+            msg += f"• *{name}*\n  _{course}_ | Due: {due}\n\n"
+        
+        telegram_send_message(msg)
 
     def extract_text(self, file_path):
         """Extract all text from a PDF. Returns empty string if unreadable."""
@@ -288,8 +319,8 @@ Lecture material:
             note_content = response.choices[0].message.content
 
             # Save note
-            safe_course = course_name.replace("/", "-")
-            note_dir = BASE_DIR / "vault" / safe_course
+            module_code = course_name.split(" ")[0].upper()
+            note_dir = BASE_DIR / "vault" / module_code
             note_dir.mkdir(parents=True, exist_ok=True)
             note_path = note_dir / f"{stem}.md"
             note_path.write_text(note_content, encoding="utf-8")
@@ -321,7 +352,12 @@ Lecture material:
 
     def process(self):
         try:
-            logger.info(f"--- Starting Canvas Pipeline Version {VERSION} (Simulated Listener) ---")
+            logger.info(f"--- Starting Canvas Pipeline Version {VERSION} ---")
+            
+            # Check for Daily Digest (at 8 AM UTC/Local depending on runner)
+            if datetime.now().hour == 8:
+                self.send_daily_digest()
+
             courses = self.get_active_courses()
 
             for course in courses:
