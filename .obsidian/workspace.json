@@ -4,17 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "48bce60da7d067ba",
+        "id": "b6c32d30c0b590f4",
         "type": "tabs",
         "children": [
           {
-            "id": "3ea1e74ad47218b3",
+            "id": "64c680237b58b081",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "MA1508E/AY2526Sem2+Midterm+Exam.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "AY2526Sem2+Midterm+Exam"
             }
           }
         ]
@@ -70,7 +74,8 @@
               "title": "Bookmarks"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "horizontal",
@@ -177,7 +182,6 @@
   },
   "left-ribbon": {
     "hiddenItems": {
-      "github-sync:Sync with Remote": false,
       "switcher:Open quick switcher": false,
       "graph:Open graph view": false,
       "canvas:Create new canvas": false,
@@ -185,16 +189,21 @@
       "templates:Insert template": false,
       "command-palette:Open command palette": false,
       "bases:Create new base": false,
-      "obsidian-git:Open Git source control": false
+      "obsidian-git:Open Git source control": false,
+      "smart-connections:Smart Connections: Open connections view": false,
+      "smart-connections:Smart Lookup: Open lookup view": false,
+      "smart-connections:Smart Connections: Open random connection": false
     }
   },
-  "active": "3ea1e74ad47218b3",
+  "active": "64c680237b58b081",
   "lastOpenFiles": [
+    "CS1231/Midterm+Test+2+Practice+Paper.md",
+    "Eigenvalue.md",
+    "Function.md",
     "MA1508E/index.md",
     "MA1508E/AY2526Sem2+Midterm+Exam.md",
     "MA1508E/AY2526Sem2+Midterm+Exam+Solution.md",
     "HOME.md",
-    "CS1231/Midterm+Test+2+Practice+Paper.md",
     "CS1231/Midterm+Test+2+Practice+Paper+with+Reference+Solutions.md",
     "CG2111A/sensor_miniproject_handout_student.md",
     "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.base",
@@ -214,8 +223,6 @@
     "MA1508E/Tutorial+9.md",
     "MA1508E/Tutorial+7.md",
     "MA1508E/Tutorial+5+Solution.md",
-    "MA1508E/Tutorial+5.md",
-    "MA1508E/Tutorial+6.md",
-    "MA1508E/Tutorial+4+Solution.md"
+    "MA1508E/Tutorial+5.md"
   ]
 }
