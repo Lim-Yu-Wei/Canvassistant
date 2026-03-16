@@ -1,0 +1,41 @@
+# =========================
+# Secrets / crypto keys
+# =========================
+*.key
+*.Key
+*.KEY
+*.pem
+*.crt
+.env
+config.local.json
+
+# =========================
+# Python / environments
+# =========================
+.smart-env/
+venv/
+__pycache__/
+*.pyc
+
+# =========================
+# Obsidian internal files
+# =========================
+.obsidian/cache/
+.obsidian/workspace.json
+.obsidian/workspaces.json
+
+# Ignore Local REST API plugin configs
+.obsidian/plugins/local-rest-api/
+.obsidian/plugins/obsidian-local-rest-api/
+
+# =========================
+# OS junk
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Temporary files
+# =========================
+*.log
+*.tmp
