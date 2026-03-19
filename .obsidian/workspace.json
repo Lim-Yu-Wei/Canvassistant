@@ -49,7 +49,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "",
+                "query": "lec09a",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -70,8 +70,7 @@
               "title": "Bookmarks"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "horizontal",
@@ -188,7 +187,7 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "4b2fc013f8621b87",
+  "active": "b1b5923715c89791",
   "lastOpenFiles": [
     "New Text Document.txt",
     "MA1508E/AY2526Sem2+Midterm+Exam.md",
